@@ -1,0 +1,136 @@
+{
+  "name": "@axon/design-system",
+  "version": "1.0.0",
+  "description": "Sistema de diseno de AxonPlataforma — tokens, patrones Tailwind CSS y helpers para estudios medicos",
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./brand": {
+      "types": "./dist/brand.d.ts",
+      "import": "./dist/brand.js",
+      "default": "./dist/brand.js"
+    },
+    "./colors": {
+      "types": "./dist/colors.d.ts",
+      "import": "./dist/colors.js",
+      "default": "./dist/colors.js"
+    },
+    "./typography": {
+      "types": "./dist/typography.d.ts",
+      "import": "./dist/typography.js",
+      "default": "./dist/typography.js"
+    },
+    "./shapes": {
+      "types": "./dist/shapes.d.ts",
+      "import": "./dist/shapes.js",
+      "default": "./dist/shapes.js"
+    },
+    "./shadows": {
+      "types": "./dist/shadows.d.ts",
+      "import": "./dist/shadows.js",
+      "default": "./dist/shadows.js"
+    },
+    "./components": {
+      "types": "./dist/components.d.ts",
+      "import": "./dist/components.js",
+      "default": "./dist/components.js"
+    },
+    "./section-colors": {
+      "types": "./dist/section-colors.d.ts",
+      "import": "./dist/section-colors.js",
+      "default": "./dist/section-colors.js"
+    },
+    "./navigation": {
+      "types": "./dist/navigation.d.ts",
+      "import": "./dist/navigation.js",
+      "default": "./dist/navigation.js"
+    },
+    "./layout": {
+      "types": "./dist/layout.d.ts",
+      "import": "./dist/layout.js",
+      "default": "./dist/layout.js"
+    },
+    "./animation": {
+      "types": "./dist/animation.d.ts",
+      "import": "./dist/animation.js",
+      "default": "./dist/animation.js"
+    },
+    "./rules": {
+      "types": "./dist/rules.d.ts",
+      "import": "./dist/rules.js",
+      "default": "./dist/rules.js"
+    },
+    "./architecture": {
+      "types": "./dist/architecture.d.ts",
+      "import": "./dist/architecture.js",
+      "default": "./dist/architecture.js"
+    }
+  },
+
+  "typesVersions": {
+    "*": {
+      "brand":          ["./dist/brand.d.ts"],
+      "colors":         ["./dist/colors.d.ts"],
+      "typography":     ["./dist/typography.d.ts"],
+      "shapes":         ["./dist/shapes.d.ts"],
+      "shadows":        ["./dist/shadows.d.ts"],
+      "components":     ["./dist/components.d.ts"],
+      "section-colors": ["./dist/section-colors.d.ts"],
+      "navigation":     ["./dist/navigation.d.ts"],
+      "layout":         ["./dist/layout.d.ts"],
+      "animation":      ["./dist/animation.d.ts"],
+      "rules":          ["./dist/rules.d.ts"],
+      "architecture":   ["./dist/architecture.d.ts"]
+    }
+  },
+
+  "files": [
+    "dist",
+    "*.ts",
+    "!*.test.ts",
+    "package.json",
+    "tsconfig.build.json"
+  ],
+
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
+  },
+
+  "peerDependencies": {
+    "react": ">=17.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+
+  "keywords": [
+    "design-system",
+    "axon",
+    "tailwindcss",
+    "tokens",
+    "medical-education",
+    "ui"
+  ],
+
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}

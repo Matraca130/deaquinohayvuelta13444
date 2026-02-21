@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    /* ── Output ── */
+    "outDir": "./dist",
+    "rootDir": ".",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    /* ── Module ── */
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    /* ── Strictness ── */
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+
+    /* ── JSX (for React.CSSProperties in typography.ts) ── */
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "index.ts",
+    "brand.ts",
+    "colors.ts",
+    "typography.ts",
+    "shapes.ts",
+    "shadows.ts",
+    "components.ts",
+    "section-colors.ts",
+    "navigation.ts",
+    "layout.ts",
+    "animation.ts",
+    "rules.ts",
+    "architecture.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "*.test.ts"
+  ]
+}
