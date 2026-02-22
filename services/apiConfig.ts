@@ -1,41 +1,61 @@
 // ============================================================
-// Axon — API Configuration (Single Source of Truth)
+// Axon — API Configuration (Single Source of Truth) v4.4
 //
-// ALL API services import their base URL and auth strategy
-// from here. To switch between environments, change ONE file.
+// TWO backends, SAME Supabase project (xdnciktarvxyhkrokbng):
+//   REAL  → make-server-6569f786  (39 Postgres tables, auth, RLS)
+//   FIGMA → make-server-9e5922ee  (KV store, AI prototyping)
 //
-// Architecture:
-//   authApi.ts      → REAL_BACKEND_URL  (JWT real)
-//   platformApi.ts  → REAL_BACKEND_URL  (JWT real)
-//   studentApi.ts   → REAL_BACKEND_URL  (JWT real)
-//   aiApi (Figma)   → FIGMA_BACKEND_URL (publicAnonKey)
+// Auth pattern (REAL backend):
+//   Authorization: Bearer ANON_KEY          ← Supabase gateway
+//   X-Access-Token: <user JWT from auth>    ← identifies the user
+//
+// Response format (REAL backend):
+//   Success: { data: ... }
+//   Error:   { error: "message" }
+//   Paginated: { data: { items: [...], total, limit, offset } }
 // ============================================================
 
+import { createClient } from '@supabase/supabase-js';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
-// ── Backend URLs ──────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────
 
-/** The real deployed Supabase Edge Function — SQL + KV, RBAC, auth */
-export const REAL_BACKEND_URL = `https://${projectId}.supabase.co/functions/v1/server`;
+const SUPABASE_URL = `https://${projectId}.supabase.co`;
+const SUPABASE_ANON_KEY = publicAnonKey;
 
-/** The Figma Make Edge Function — KV only, no real auth */
-export const FIGMA_BACKEND_URL = `https://${projectId}.supabase.co/functions/v1/make-server-9e5922ee`;
+/** The real deployed backend — 39 Postgres tables, RBAC, auth */
+export const REAL_BACKEND_URL = `${SUPABASE_URL}/functions/v1/make-server-6569f786`;
+
+/** The Figma Make backend — KV store, AI prototyping only */
+export const FIGMA_BACKEND_URL = `${SUPABASE_URL}/functions/v1/make-server-9e5922ee`;
+
+// ── Supabase Client (singleton for client-side auth) ──────
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Re-export for backward compat
+export { publicAnonKey };
 
 // ── Auth tokens ───────────────────────────────────────────
 
 const TOKEN_KEY = 'axon_access_token';
 
-/** Get the real JWT token stored after login */
+/** Get the user JWT stored after login */
 export function getRealToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-/** The Figma Make gateway anon key (for AI-only endpoints) */
-export function getAnonKey(): string {
-  return publicAnonKey;
+/** Store the user JWT */
+export function setRealToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
 }
 
-// ── Request helpers ───────────────────────────────────────
+/** Clear the stored token */
+export function clearRealToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+// ── Error class ───────────────────────────────────────────
 
 export class ApiError extends Error {
   code: string;
@@ -48,12 +68,10 @@ export class ApiError extends Error {
   }
 }
 
-/**
- * Generic request to the REAL backend.
- * - Uses real JWT for auth
- * - Unwraps { success, data } response format
- * - Throws ApiError on failure
- */
+// ── Real Backend Request ──────────────────────────────────
+// Headers: Authorization=ANON_KEY (gateway) + X-Access-Token=JWT (user)
+// Unwraps { data: ... } response format
+
 export async function realRequest<T>(
   path: string,
   options?: RequestInit
@@ -63,48 +81,49 @@ export async function realRequest<T>(
 
   console.log(`[API] ${options?.method || 'GET'} ${path}`);
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+  };
+
+  // Add user JWT if available
+  if (token) {
+    headers['X-Access-Token'] = token;
+  }
+
+  // Merge any extra headers from options
+  if (options?.headers) {
+    Object.assign(headers, options.headers);
+  }
+
   const res = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...((options?.headers as Record<string, string>) || {}),
-    },
+    headers,
   });
 
   const body = await res.json().catch(() => ({
-    success: false,
-    error: { code: 'PARSE_ERROR', message: `Failed to parse response from ${path}` },
+    error: `Failed to parse response from ${path}`,
   }));
 
   if (!res.ok) {
-    const msg = body?.error?.message || `API error ${res.status} at ${path}`;
-    const code = body?.error?.code || 'UNKNOWN';
+    const msg = body?.error || `API error ${res.status} at ${path}`;
     console.error(`[API] Error ${res.status}: ${msg}`);
-    throw new ApiError(msg, code, res.status);
+    throw new ApiError(msg, 'API_ERROR', res.status);
   }
 
-  // The real backend wraps responses in { success: true, data: ... }
-  if (body && typeof body === 'object' && 'success' in body) {
-    if (!body.success) {
-      throw new ApiError(
-        body.error?.message || 'Unknown error',
-        body.error?.code || 'UNKNOWN',
-        res.status
-      );
-    }
+  // Unwrap { data: ... } envelope
+  if (body && typeof body === 'object' && 'data' in body) {
     return body.data as T;
   }
 
+  // Fallback: return raw body
   return body as T;
 }
 
-/**
- * Generic request to the FIGMA MAKE backend.
- * - Uses publicAnonKey for auth (gateway requirement)
- * - Returns raw response (no { success, data } wrapper)
- * - Used ONLY for AI endpoints not available in the real backend
- */
+// ── Figma Make Backend Request ────────────────────────────
+// Uses ANON_KEY only (no user auth needed)
+// For AI/prototyping endpoints
+
 export async function figmaRequest<T>(
   path: string,
   options?: RequestInit
@@ -117,7 +136,7 @@ export async function figmaRequest<T>(
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${publicAnonKey}`,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
       ...((options?.headers as Record<string, string>) || {}),
     },
   });

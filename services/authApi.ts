@@ -1,16 +1,16 @@
 // ============================================================
-// Axon — Auth API Service (Frontend -> Real Supabase)
-// Connects directly to the deployed Edge Functions.
-// Uses centralized config from apiConfig.ts.
+// Axon — Auth API Service v4.4
+//
+// Login/signup/signout via Supabase Auth (client-side).
+// After login, fetches memberships from the REAL backend.
+//
+// Auth flow:
+//   1. supabase.auth.signInWithPassword() → gets JWT
+//   2. GET /institutions (with JWT) → gets user's roles
+//   3. Store JWT + memberships in localStorage
 // ============================================================
 
-import { REAL_BACKEND_URL } from '@/services/apiConfig';
-
-// The real Supabase Edge Function endpoint
-const BASE_URL = REAL_BACKEND_URL;
-
-// Re-export publicAnonKey for backward compatibility
-import { publicAnonKey } from '/utils/supabase/info';
+import { supabase, realRequest, setRealToken, clearRealToken, getRealToken } from '@/services/apiConfig';
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -19,11 +19,7 @@ export interface AuthUser {
   email: string;
   name: string;
   avatar_url: string | null;
-  is_super_admin: boolean;
-  platform_role?: string;
-  is_active?: boolean;
   created_at: string;
-  updated_at: string;
 }
 
 export interface Membership {
@@ -32,9 +28,9 @@ export interface Membership {
   institution_id: string;
   role: 'owner' | 'admin' | 'professor' | 'student';
   plan_id: string | null;
-  is_active?: boolean;
+  is_active: boolean;
   created_at: string;
-  institution: {
+  institution?: {
     id: string;
     name: string;
     slug: string;
@@ -44,29 +40,15 @@ export interface Membership {
   } | null;
 }
 
-export interface AuthResponse {
-  success: boolean;
-  data?: {
-    user: AuthUser;
-    access_token: string;
-    memberships: Membership[];
-  };
-  error?: {
-    code: string;
-    message: string;
-  };
-}
-
-export interface MeResponse {
-  success: boolean;
-  data?: {
-    user: AuthUser;
-    memberships: Membership[];
-  };
-  error?: {
-    code: string;
-    message: string;
-  };
+export class AuthApiError extends Error {
+  code: string;
+  status: number;
+  constructor(message: string, code: string, status: number) {
+    super(message);
+    this.name = 'AuthApiError';
+    this.code = code;
+    this.status = status;
+  }
 }
 
 // ── Storage Keys ──────────────────────────────────────────
@@ -75,7 +57,7 @@ const TOKEN_KEY = 'axon_access_token';
 const USER_KEY = 'axon_user';
 const MEMBERSHIPS_KEY = 'axon_memberships';
 
-// ── Token Management ──────────────────────────────────────
+// ── Token / User / Membership getters ─────────────────────
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -94,77 +76,181 @@ export function getStoredMemberships(): Membership[] {
 }
 
 function saveAuthData(user: AuthUser, token: string, memberships: Membership[]) {
-  localStorage.setItem(TOKEN_KEY, token);
+  setRealToken(token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   localStorage.setItem(MEMBERSHIPS_KEY, JSON.stringify(memberships));
 }
 
 export function clearAuthData() {
-  localStorage.removeItem(TOKEN_KEY);
+  clearRealToken();
   localStorage.removeItem(USER_KEY);
   localStorage.removeItem(MEMBERSHIPS_KEY);
 }
 
-// ── Helper ────────────────────────────────────────────────
+// ── Fetch memberships from real backend ───────────────────
 
-async function authRequest<T>(
-  path: string,
-  options?: RequestInit
-): Promise<T> {
-  const url = `${BASE_URL}${path}`;
-  console.log(`[authApi] ${options?.method || 'GET'} ${url}`);
+async function fetchMemberships(): Promise<Membership[]> {
+  // STRATEGY: Use /institutions (returns user's role + institution data without
+  // requiring institution_id param) instead of /memberships (which requires
+  // institution_id and returns 400 without it).
+  try {
+    const raw = await realRequest<any>('/institutions');
+    console.log('[authApi] /institutions raw response:', raw);
 
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${getStoredToken() || publicAnonKey}`,
-      ...(options?.headers || {}),
-    },
-  });
+    // Normalize: could be an array directly, or { items: [...] }
+    let items: any[];
+    if (Array.isArray(raw)) {
+      items = raw;
+    } else if (raw && Array.isArray(raw.items)) {
+      items = raw.items;
+    } else {
+      console.warn('[authApi] /institutions returned unexpected format:', typeof raw, raw);
+      items = [];
+    }
 
-  const body = await res.json().catch(() => ({ success: false, error: { code: 'PARSE_ERROR', message: 'Failed to parse response' } }));
+    // Map institution entries to Membership objects.
+    const memberships: Membership[] = items.map((inst: any) => ({
+      id: inst.membership_id || inst.member_id || inst.pivot_id || `membership-${inst.id}`,
+      user_id: inst.user_id || '',
+      institution_id: inst.id || inst.institution_id || '',
+      role: (inst.role || 'student') as Membership['role'],
+      plan_id: inst.plan_id || null,
+      is_active: inst.is_active !== false,
+      created_at: inst.created_at || new Date().toISOString(),
+      institution: {
+        id: inst.id || inst.institution_id || '',
+        name: inst.name || 'Instituicao',
+        slug: inst.slug || '',
+        logo_url: inst.logo_url || null,
+        is_active: inst.is_active !== false,
+        settings: inst.settings || {},
+      },
+    }));
 
-  if (!res.ok) {
-    console.error(`[authApi] Error ${res.status} at ${path}:`, body);
-    throw new AuthApiError(
-      body?.error?.message || `API error ${res.status}`,
-      body?.error?.code || 'UNKNOWN',
-      res.status
-    );
+    console.log(`[authApi] Mapped ${memberships.length} memberships from /institutions:`,
+      memberships.map(m => `${m.role}@${m.institution?.name} (inst:${m.institution_id})`));
+    return memberships;
+  } catch (err: any) {
+    console.error('[authApi] FAILED to fetch /institutions for memberships:', err?.message, err?.status);
+
+    // Fallback: try /memberships with known institution_id (if we have one cached)
+    try {
+      const cachedMemberships = getStoredMemberships();
+      if (cachedMemberships.length > 0) {
+        const instId = cachedMemberships[0].institution_id;
+        console.log(`[authApi] Fallback: trying /memberships?institution_id=${instId}`);
+        const raw = await realRequest<any>(`/memberships?institution_id=${instId}`);
+        let items: any[];
+        if (Array.isArray(raw)) items = raw;
+        else if (raw && Array.isArray(raw.items)) items = raw.items;
+        else items = [];
+        if (items.length > 0) {
+          console.log(`[authApi] Fallback /memberships returned ${items.length} items`);
+          return items as Membership[];
+        }
+      }
+    } catch (fallbackErr: any) {
+      console.error('[authApi] Fallback /memberships also failed:', fallbackErr?.message);
+    }
+
+    // Re-throw original error
+    throw err;
   }
-
-  return body as T;
 }
 
-export class AuthApiError extends Error {
-  code: string;
-  status: number;
-  constructor(message: string, code: string, status: number) {
-    super(message);
-    this.name = 'AuthApiError';
-    this.code = code;
-    this.status = status;
-  }
+// ── Map Supabase user to AuthUser ─────────────────────────
+
+function mapUser(supaUser: any): AuthUser {
+  return {
+    id: supaUser.id,
+    email: supaUser.email || '',
+    name: supaUser.user_metadata?.name || supaUser.user_metadata?.full_name || supaUser.email?.split('@')[0] || '',
+    avatar_url: supaUser.user_metadata?.avatar_url || null,
+    created_at: supaUser.created_at || new Date().toISOString(),
+  };
 }
 
 // ── Sign In ───────────────────────────────────────────────
 
-export async function signIn(email: string, password: string): Promise<AuthResponse> {
-  const res = await authRequest<AuthResponse>('/auth/signin', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-    headers: {
-      Authorization: `Bearer ${publicAnonKey}`,
-    },
-  });
+export interface AuthResult {
+  success: boolean;
+  data?: {
+    user: AuthUser;
+    access_token: string;
+    memberships: Membership[];
+  };
+  error?: { code: string; message: string };
+}
 
-  if (res.success && res.data) {
-    saveAuthData(res.data.user, res.data.access_token, res.data.memberships);
-    console.log(`[authApi] Sign in success: ${res.data.user.email}, ${res.data.memberships.length} memberships`);
+export async function signIn(email: string, password: string): Promise<AuthResult> {
+  console.log('[authApi] Signing in via supabase.auth...');
+
+  let data: any;
+  let error: any;
+
+  try {
+    const result = await supabase.auth.signInWithPassword({ email, password });
+    data = result.data;
+    error = result.error;
+  } catch (err: any) {
+    // Network-level failure (project paused, CORS, offline, etc.)
+    console.error('[authApi] signInWithPassword threw exception:', err?.message, err);
+    const isParseError = err?.message?.toLowerCase().includes('parse')
+      || err?.message?.toLowerCase().includes('json')
+      || err?.message?.toLowerCase().includes('unexpected');
+    const friendlyMsg = isParseError
+      ? 'O servidor de autenticacao nao respondeu corretamente. Verifique se o projeto Supabase esta ativo em supabase.com/dashboard.'
+      : `Erro de conexao com o servidor de autenticacao: ${err?.message || 'Unknown error'}`;
+    return {
+      success: false,
+      error: { code: 'NETWORK_ERROR', message: friendlyMsg },
+    };
   }
 
-  return res;
+  if (error || !data?.session) {
+    console.error('[authApi] Sign in failed:', error?.message, 'status:', error?.status);
+    let friendlyMsg = error?.message || 'Falha no login';
+    if (error?.message?.toLowerCase().includes('invalid login credentials')) {
+      friendlyMsg = 'Email ou senha incorretos. Verifique suas credenciais.';
+    } else if (error?.message?.toLowerCase().includes('email not confirmed')) {
+      friendlyMsg = 'Email ainda nao confirmado. Verifique sua caixa de entrada.';
+    } else if (error?.message?.toLowerCase().includes('parse') || error?.message?.toLowerCase().includes('json')) {
+      friendlyMsg = 'O servidor de autenticacao retornou uma resposta invalida. Verifique se o projeto Supabase esta ativo.';
+    }
+    return {
+      success: false,
+      error: {
+        code: error?.status?.toString() || 'AUTH_ERROR',
+        message: friendlyMsg,
+      },
+    };
+  }
+
+  const user = mapUser(data.user);
+  const token = data.session.access_token;
+
+  // Store token so realRequest can use it for /institutions call
+  setRealToken(token);
+
+  // Fetch memberships from the real backend
+  let memberships: Membership[] = [];
+  try {
+    memberships = await fetchMemberships();
+  } catch (err: any) {
+    console.error('[authApi] Login OK but memberships fetch FAILED:', err?.message);
+    // Auth succeeded but memberships failed — save what we have
+  }
+
+  // Persist everything
+  saveAuthData(user, token, memberships);
+
+  console.log(`[authApi] Sign in success: ${user.email}, ${memberships.length} memberships`,
+    memberships.length === 0 ? 'WARNING: 0 memberships — routing may fallback to student!' : '');
+
+  return {
+    success: true,
+    data: { user, access_token: token, memberships },
+  };
 }
 
 // ── Sign Up ───────────────────────────────────────────────
@@ -174,65 +260,106 @@ export async function signUp(
   password: string,
   name: string,
   institutionId?: string
-): Promise<AuthResponse> {
-  const res = await authRequest<AuthResponse>('/auth/signup', {
-    method: 'POST',
-    body: JSON.stringify({
-      email,
-      password,
-      name,
-      institution_id: institutionId,
-    }),
-    headers: {
-      Authorization: `Bearer ${publicAnonKey}`,
+): Promise<AuthResult> {
+  console.log('[authApi] Signing up via supabase.auth...');
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { name, full_name: name },
     },
   });
 
-  if (res.success && res.data) {
-    saveAuthData(res.data.user, res.data.access_token, res.data.memberships);
-    console.log(`[authApi] Sign up success: ${res.data.user.email}`);
+  if (error || !data.session) {
+    console.error('[authApi] Sign up failed:', error?.message);
+    return {
+      success: false,
+      error: {
+        code: error?.status?.toString() || 'AUTH_ERROR',
+        message: error?.message || 'Sign up failed. Email confirmation may be required.',
+      },
+    };
   }
 
-  return res;
+  const user = mapUser(data.user);
+  const token = data.session.access_token;
+  setRealToken(token);
+
+  // If institution specified, try to create membership via backend
+  if (institutionId) {
+    try {
+      await realRequest('/signup', {
+        method: 'POST',
+        body: JSON.stringify({ institution_id: institutionId }),
+      });
+    } catch (err) {
+      console.warn('[authApi] Post-signup institution join failed:', err);
+    }
+  }
+
+  let memberships: Membership[] = [];
+  try {
+    memberships = await fetchMemberships();
+  } catch (err: any) {
+    console.error('[authApi] Signup OK but memberships fetch failed:', err?.message);
+  }
+  saveAuthData(user, token, memberships);
+
+  console.log(`[authApi] Sign up success: ${user.email}`);
+
+  return {
+    success: true,
+    data: { user, access_token: token, memberships },
+  };
 }
 
-// ── Restore Session (GET /auth/me) ────────────────────────
+// ── Restore Session ───────────────────────────────────────
 
-export async function restoreSession(): Promise<MeResponse> {
-  const token = getStoredToken();
-  if (!token) {
-    return { success: false, error: { code: 'NO_TOKEN', message: 'No stored token' } };
+export async function restoreSession(): Promise<AuthResult> {
+  console.log('[authApi] Restoring session via supabase.auth.getSession()...');
+
+  const { data, error } = await supabase.auth.getSession();
+
+  if (error || !data.session) {
+    console.log('[authApi] No active session found');
+    clearAuthData();
+    return {
+      success: false,
+      error: { code: 'NO_SESSION', message: 'No active session' },
+    };
   }
 
-  const res = await authRequest<MeResponse>('/auth/me', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  const user = mapUser(data.session.user);
+  const token = data.session.access_token;
+  setRealToken(token);
 
-  if (res.success && res.data) {
-    // Update stored user/memberships but keep existing token
-    localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
-    localStorage.setItem(MEMBERSHIPS_KEY, JSON.stringify(res.data.memberships));
-    console.log(`[authApi] Session restored: ${res.data.user.email}`);
+  // Refresh memberships
+  let memberships: Membership[] = [];
+  try {
+    memberships = await fetchMemberships();
+  } catch (err: any) {
+    console.error('[authApi] Session restore: memberships fetch FAILED:', err?.message);
+    memberships = getStoredMemberships();
+    console.log(`[authApi] Using ${memberships.length} cached memberships from localStorage`);
   }
+  saveAuthData(user, token, memberships);
 
-  return res;
+  console.log(`[authApi] Session restored: ${user.email}, ${memberships.length} memberships`);
+
+  return {
+    success: true,
+    data: { user, access_token: token, memberships },
+  };
 }
 
 // ── Sign Out ──────────────────────────────────────────────
 
 export async function signOut(): Promise<void> {
-  const token = getStoredToken();
-  if (token) {
-    try {
-      await authRequest('/auth/signout', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch (err) {
-      console.warn('[authApi] Signout request failed (clearing local data anyway):', err);
-    }
+  try {
+    await supabase.auth.signOut();
+  } catch (err) {
+    console.warn('[authApi] Supabase signout error:', err);
   }
   clearAuthData();
   console.log('[authApi] Signed out, local data cleared');

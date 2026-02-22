@@ -1,7 +1,8 @@
 // ============================================================
-// Axon — Auth Context
-// Manages authentication state, session restore, and provides
-// user/membership data to the entire app.
+// Axon — Auth Context v4.4
+//
+// Uses Supabase Auth (client-side) + real backend for memberships.
+// Provides user, memberships, active membership, and auth actions.
 // ============================================================
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import {
@@ -11,11 +12,11 @@ import {
   signUp as apiSignUp,
   signOut as apiSignOut,
   restoreSession,
-  getStoredToken,
   getStoredUser,
   getStoredMemberships,
   clearAuthData,
   AuthApiError,
+  getStoredToken,
 } from '@/services/authApi';
 
 // ── Types ─────────────────────────────────────────────────
@@ -55,25 +56,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activeMembership, setActiveMembershipState] = useState<Membership | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
+  // ── Restore active membership from localStorage ─────────
+  const restoreActiveMembership = useCallback((membershipList: Membership[]) => {
+    if (membershipList.length === 0) {
+      setActiveMembershipState(null);
+      return;
+    }
+
+    // Try to restore previously selected membership
+    try {
+      const stored = localStorage.getItem('axon_active_membership');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const found = membershipList.find(m => m.id === parsed.id);
+        if (found) {
+          setActiveMembershipState(found);
+          return;
+        }
+      }
+    } catch { /* ignore */ }
+
+    // Default to first membership
+    setActiveMembershipState(membershipList[0]);
+  }, []);
+
   // ── Restore session on mount ────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
     async function restore() {
-      const token = getStoredToken();
-      if (!token) {
-        setStatus('unauthenticated');
-        return;
-      }
-
       // Optimistic: show stored data immediately
       const storedUser = getStoredUser();
       const storedMemberships = getStoredMemberships();
-      if (storedUser) {
+      const storedToken = getStoredToken();
+
+      if (storedUser && storedToken) {
         setUser(storedUser);
         setMemberships(storedMemberships);
-        setAccessToken(token);
-        setActiveMembershipState(storedMemberships[0] || null);
+        setAccessToken(storedToken);
+        restoreActiveMembership(storedMemberships);
       }
 
       try {
@@ -83,24 +104,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (res.success && res.data) {
           setUser(res.data.user);
           setMemberships(res.data.memberships);
-          setAccessToken(token);
-          setActiveMembershipState(res.data.memberships[0] || null);
+          setAccessToken(res.data.access_token);
+          restoreActiveMembership(res.data.memberships);
           setStatus('authenticated');
-          console.log('[AuthContext] Session restored from server');
+          console.log('[AuthContext] Session restored from Supabase Auth');
         } else {
-          // Token expired or invalid
+          // No valid session
           clearAuthData();
           setUser(null);
           setMemberships([]);
           setAccessToken(null);
           setActiveMembershipState(null);
           setStatus('unauthenticated');
-          console.log('[AuthContext] Session restore failed, clearing data');
+          console.log('[AuthContext] No active session');
         }
       } catch (err) {
         if (cancelled) return;
         // If server unreachable but we have stored data, use it
-        if (storedUser) {
+        if (storedUser && storedToken) {
           setStatus('authenticated');
           console.warn('[AuthContext] Server unreachable, using cached session');
         } else {
@@ -113,17 +134,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     restore();
     return () => { cancelled = true; };
-  }, []);
+  }, [restoreActiveMembership]);
 
   // ── Sign In ─────────────────────────────────────────────
   const handleSignIn = useCallback(async (email: string, password: string) => {
     try {
       const res = await apiSignIn(email, password);
       if (res.success && res.data) {
+        console.log(`[AuthContext] Sign in OK: ${res.data.user.email}, ` +
+          `${res.data.memberships.length} memberships, ` +
+          `roles: [${res.data.memberships.map(m => m.role).join(', ')}]`);
         setUser(res.data.user);
         setMemberships(res.data.memberships);
         setAccessToken(res.data.access_token);
-        setActiveMembershipState(res.data.memberships[0] || null);
+        restoreActiveMembership(res.data.memberships);
         setStatus('authenticated');
         return { success: true };
       }
@@ -133,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('[AuthContext] Sign in error:', err);
       return { success: false, error: msg };
     }
-  }, []);
+  }, [restoreActiveMembership]);
 
   // ── Sign Up ─────────────────────────────────────────────
   const handleSignUp = useCallback(async (email: string, password: string, name: string, institutionId?: string) => {
@@ -143,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(res.data.user);
         setMemberships(res.data.memberships);
         setAccessToken(res.data.access_token);
-        setActiveMembershipState(res.data.memberships[0] || null);
+        restoreActiveMembership(res.data.memberships);
         setStatus('authenticated');
         return { success: true };
       }
@@ -153,7 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('[AuthContext] Sign up error:', err);
       return { success: false, error: msg };
     }
-  }, []);
+  }, [restoreActiveMembership]);
 
   // ── Sign Out ────────────────────────────────────────────
   const handleSignOut = useCallback(async () => {
