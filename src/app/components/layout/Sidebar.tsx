@@ -7,6 +7,8 @@ import {
   Settings, 
   Users,
   Home,
+  CreditCard,
+  BarChart2,
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -23,6 +25,8 @@ export function Sidebar() {
   const navItems: NavItem[] = [
     { id: 'home', label: 'Início', icon: Home },
     { id: 'study-hub', label: 'Estudar', icon: BookOpen },
+    { id: 'flashcards', label: 'Flashcards', icon: CreditCard },
+    { id: 'progress', label: 'Progresso', icon: BarChart2 },
   ];
 
   const secondaryItems = [
