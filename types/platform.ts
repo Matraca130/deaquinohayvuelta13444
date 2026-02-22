@@ -1,8 +1,11 @@
 // ============================================================
-// Axon — Platform Types v4.4 (FOCUSED)
+// Axon — Platform Types v4.4 (FOCUSED + BACKWARD COMPAT)
 //
 // SCOPE: Professor summary editor + Student summary interaction
 // Matches the real backend's Postgres schema for these entities.
+//
+// BACKWARD COMPAT section at the bottom provides types needed
+// by Owner/Admin pages that haven't been refactored yet.
 // ============================================================
 
 export type UUID = string;
@@ -95,8 +98,6 @@ export interface Keyword {
   updated_at: ISODate;
 }
 
-// ── Chunks ───────────────────────────────────────────
-
 export interface Chunk {
   id: UUID;
   summary_id: UUID;
@@ -106,8 +107,6 @@ export interface Chunk {
   created_at: string;
   updated_at: string;
 }
-
-// ── Subtopics ────────────────────────────────────────
 
 export interface Subtopic {
   id: UUID;
@@ -119,8 +118,6 @@ export interface Subtopic {
   updated_at: string;
 }
 
-// ── Keyword Connections ────────────────────────────────
-
 export interface KeywordConnection {
   id: UUID;
   keyword_a_id: UUID;
@@ -128,8 +125,6 @@ export interface KeywordConnection {
   relationship?: string;
   created_at: string;
 }
-
-// ── Professor Notes on Keywords ────────────────────────
 
 export interface KwProfNote {
   id: UUID;
@@ -139,8 +134,6 @@ export interface KwProfNote {
   created_at: string;
   updated_at: string;
 }
-
-// ── Flashcards ───────────────────────────────────────
 
 export interface FlashcardCard {
   id: UUID;
@@ -153,8 +146,6 @@ export interface FlashcardCard {
   created_at: string;
   updated_at: string;
 }
-
-// ── Quiz Questions ───────────────────────────────────
 
 export interface QuizQuestion {
   id: UUID;
@@ -172,8 +163,6 @@ export interface QuizQuestion {
   updated_at: string;
 }
 
-// ── Videos ───────────────────────────────────────────
-
 export interface Video {
   id: UUID;
   summary_id: UUID;
@@ -187,8 +176,6 @@ export interface Video {
   updated_at: string;
 }
 
-// ── Student Notes on Keywords ──────────────────────────
-
 export interface KwStudentNote {
   id: UUID;
   keyword_id: UUID;
@@ -197,8 +184,6 @@ export interface KwStudentNote {
   created_at: string;
   updated_at: string;
 }
-
-// ── Text Annotations ───────────────────────────────────
 
 export interface PlatformTextAnnotation {
   id: UUID;
@@ -212,8 +197,6 @@ export interface PlatformTextAnnotation {
   updated_at: string;
 }
 
-// ── Video Notes ────────────────────────────────────────
-
 export interface VideoNote {
   id: UUID;
   video_id: UUID;
@@ -224,8 +207,6 @@ export interface VideoNote {
   updated_at: string;
 }
 
-// ── Reading State ──────────────────────────────────────
-
 export interface ReadingState {
   id?: UUID;
   summary_id: UUID;
@@ -234,4 +215,113 @@ export interface ReadingState {
   time_spent_seconds?: number;
   completed?: boolean;
   last_read_at?: string;
+}
+
+// ============================================================
+// BACKWARD COMPAT — types used by Owner/Admin pages
+// These will be removed once those pages are refactored.
+// ============================================================
+
+export interface ApiResponse<T = any> {
+  data?: T;
+  error?: string;
+}
+
+export interface MemberListItem {
+  id: UUID;
+  user_id: UUID;
+  institution_id: UUID;
+  role: MembershipRole;
+  plan_id?: UUID | null;
+  institution_plan_id?: UUID | null;
+  is_active: boolean;
+  created_at: ISODate;
+  updated_at?: ISODate;
+  name: string | null;
+  email: string | null;
+  avatar_url?: string | null;
+  plan?: { id: UUID; name: string; is_default?: boolean } | null;
+}
+
+export interface CreateMemberPayload {
+  email: string;
+  name?: string;
+  institution_id: UUID;
+  role: MembershipRole;
+  institution_plan_id?: UUID;
+}
+
+export interface InstitutionPlan {
+  id: UUID;
+  institution_id: UUID;
+  name: string;
+  description?: string;
+  price_cents: number;
+  billing_cycle?: string;
+  is_default?: boolean;
+  is_active: boolean;
+  max_members?: number;
+  features?: Record<string, any>;
+  created_at: ISODate;
+  updated_at: ISODate;
+}
+
+export interface InstitutionSubscription {
+  id: UUID;
+  institution_id: UUID;
+  plan_id: UUID;
+  status: string;
+  plan?: { name: string; slug: string } | null;
+  current_period_start?: string;
+  current_period_end?: string;
+  created_at: ISODate;
+  updated_at: ISODate;
+}
+
+export interface PlatformPlan {
+  id: UUID;
+  name: string;
+  slug: string;
+  description?: string;
+  price_cents: number;
+  billing_cycle?: string;
+  is_active: boolean;
+  features?: Record<string, any>;
+  max_members?: number;
+  created_at: ISODate;
+  updated_at: ISODate;
+}
+
+export interface InstitutionDashboardStats {
+  totalMembers: number;
+  activeStudents: number;
+  inactiveMembers: number;
+  totalPlans: number;
+  membersByRole: Record<string, number>;
+  subscription: any;
+}
+
+export interface AdminScope {
+  id: UUID;
+  membership_id: UUID;
+  scope_type: string;
+  scope_id?: UUID;
+  created_at: ISODate;
+}
+
+export interface PlanAccessRule {
+  id: UUID;
+  plan_id: UUID;
+  scope_type: string;
+  scope_id: UUID;
+  created_at: ISODate;
+}
+
+export interface AccessCheckResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+export interface ContentHierarchy {
+  courses: any[];
 }
