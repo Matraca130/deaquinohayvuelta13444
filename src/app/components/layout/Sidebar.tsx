@@ -7,6 +7,7 @@ import {
   Settings, 
   Users,
   Home,
+  Brain,
   type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -23,6 +24,7 @@ export function Sidebar() {
   const navItems: NavItem[] = [
     { id: 'home', label: 'Início', icon: Home },
     { id: 'study-hub', label: 'Estudar', icon: BookOpen },
+    { id: 'quiz', label: 'Quizzes', icon: Brain },
   ];
 
   const secondaryItems = [

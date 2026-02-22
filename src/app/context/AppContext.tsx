@@ -18,7 +18,8 @@ import { useStudentCurriculum } from '@/app/context/StudentCurriculumContext';
 export type ViewType =
   | 'home'
   | 'study-hub'
-  | 'study';
+  | 'study'
+  | 'quiz';
 
 export type ThemeType = 'dark' | 'light';
 
