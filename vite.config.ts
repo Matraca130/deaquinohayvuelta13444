@@ -13,7 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // Alias @ to the src directory
-      '@': path.resolve(__dirname, './'),
+      '@': path.resolve(__dirname, './src'),
       // Force all three imports to resolve to the same physical module
       'three': path.resolve(__dirname, 'node_modules/three'),
     },

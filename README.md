@@ -1,7 +1,7 @@
 
-  # CENTRO DAS DIVISOES
+  # AREA DO RESUMO
 
-  This is a code bundle for CENTRO DAS DIVISOES. The original project is available at https://www.figma.com/design/PX3rOApUTBnwPVpYgCG2Cn/CENTRO-DAS-DIVISOES.
+  This is a code bundle for AREA DO RESUMO. The original project is available at https://www.figma.com/design/PxZkNSKoVkiAfp5zSJdvhQ/AREA-DO-RESUMO.
 
   ## Running the code
 

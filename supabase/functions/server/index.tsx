@@ -9,6 +9,7 @@ import {
   handleGenerateQuiz,
   handleExplain,
 } from "./gemini.tsx";
+import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 
 const app = new Hono();
 
@@ -605,6 +606,147 @@ app.post(`${PREFIX}/ai/explain`, async (c) => {
   } catch (err) {
     console.log(`Error explaining concept: ${err}`);
     return c.json({ error: `Explain error: ${err}` }, 500);
+  }
+});
+
+// ============================================================
+// DIAGNOSTICS — Read-only introspection of database state
+// TEMPORARY: Remove after inspection
+// ============================================================
+
+app.get(`${PREFIX}/diagnostics/tables`, async (c) => {
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    // 1. List all tables in public schema via pg_catalog
+    const { data: tables, error: tablesErr } = await supabase
+      .from("information_schema.tables" as any)
+      .select("table_name, table_type")
+      .eq("table_schema", "public");
+
+    // If PostgREST can't read information_schema, fallback to trying known tables
+    let tableList: any[] = [];
+    let method = "information_schema";
+
+    if (tablesErr || !tables || tables.length === 0) {
+      method = "probe";
+      // Probe known + likely table names
+      const probeTables = [
+        "kv_store_0c4f6a3c",
+        "users", "profiles", "institutions", "memberships",
+        "institution_plans", "courses", "semesters", "sections",
+        "topics", "summaries", "keywords", "flashcards",
+        "flashcard_decks", "study_sessions", "roles",
+        "content", "categories", "tags", "notifications",
+        "audit_log", "plans", "subscriptions",
+      ];
+      for (const tbl of probeTables) {
+        try {
+          const { count, error } = await supabase
+            .from(tbl)
+            .select("*", { count: "exact", head: true });
+          if (!error) {
+            tableList.push({ table_name: tbl, row_count: count });
+          }
+        } catch (_) { /* table doesn't exist */ }
+      }
+    } else {
+      tableList = tables;
+      // Get row counts for each table
+      for (const t of tableList) {
+        try {
+          const { count } = await supabase
+            .from(t.table_name)
+            .select("*", { count: "exact", head: true });
+          t.row_count = count;
+        } catch (_) {
+          t.row_count = "?";
+        }
+      }
+    }
+
+    // 2. List all KV keys (just keys, not values — to see what's stored)
+    const { data: kvKeys, error: kvErr } = await supabase
+      .from("kv_store_0c4f6a3c")
+      .select("key")
+      .order("key");
+
+    return c.json({
+      supabase_url: Deno.env.get("SUPABASE_URL"),
+      method,
+      tables: tableList,
+      tables_error: tablesErr?.message || null,
+      kv_keys: kvKeys?.map((k: any) => k.key) || [],
+      kv_error: kvErr?.message || null,
+      kv_count: kvKeys?.length || 0,
+    });
+  } catch (err) {
+    console.log(`Diagnostics error: ${err}`);
+    return c.json({ error: `Diagnostics error: ${err}` }, 500);
+  }
+});
+
+// Peek at a specific table's first 5 rows + column names
+app.get(`${PREFIX}/diagnostics/table/:name`, async (c) => {
+  try {
+    const tableName = c.req.param("name");
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    const { data: rows, error, count } = await supabase
+      .from(tableName)
+      .select("*", { count: "exact" })
+      .limit(5);
+
+    if (error) {
+      return c.json({ table: tableName, error: error.message }, 404);
+    }
+
+    const columns = rows && rows.length > 0 ? Object.keys(rows[0]) : [];
+
+    return c.json({
+      table: tableName,
+      total_rows: count,
+      columns,
+      sample_rows: rows,
+    });
+  } catch (err) {
+    console.log(`Table diagnostics error: ${err}`);
+    return c.json({ error: `Table diagnostics error: ${err}` }, 500);
+  }
+});
+
+// Peek at KV values for a specific prefix
+app.get(`${PREFIX}/diagnostics/kv/:prefix`, async (c) => {
+  try {
+    const prefix = c.req.param("prefix");
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    const { data, error } = await supabase
+      .from("kv_store_0c4f6a3c")
+      .select("key, value")
+      .like("key", `${prefix}%`)
+      .limit(20);
+
+    if (error) {
+      return c.json({ error: error.message }, 500);
+    }
+
+    return c.json({
+      prefix,
+      count: data?.length || 0,
+      entries: data || [],
+    });
+  } catch (err) {
+    return c.json({ error: `KV diagnostics error: ${err}` }, 500);
   }
 });
 
