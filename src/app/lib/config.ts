@@ -6,7 +6,8 @@
 // In PRODUCTION (DEV=false): reads from VITE_SUPABASE_* env vars.
 // ============================================================
 
-import { projectId as fmProjectId, publicAnonKey as fmAnonKey } from '/utils/supabase/info';
+const fmProjectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'xdnciktarvxyhkrokbng';
+const fmAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'TU_ANON_KEY_AQUI';
 
 function ensureHttps(url: string): string {
   let u = url.trim();
